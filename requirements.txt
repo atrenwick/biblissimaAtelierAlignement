@@ -6,3 +6,4 @@ graphviz
 lxml
 numpy
 pydot
+text_matcher
