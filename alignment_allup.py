@@ -166,22 +166,16 @@ def run_matchers(file1, file2, paths, verbose=False, export_intermed=False):
     print("Parsing XML files")
 
     files = [file1, file2]
-    #names = ["Ao", "Ez"] 
     names = [os.path.basename(file).replace('.xml','') for file in files ]
     outputs = xml_to_json(files, names, paths)
-    #old :: Ao, Ez = outputs[0], outputs[1]
     f1_json, f2_json = outputs[0], outputs[1]
         
-    # on crée une liste vide, qu'on va remplir avec l'ensemble des témoins que l'on souhaite voir aligner avec le témoin de base
-    # ici, un seul témoin, Ez, en plus du témoin de base, Ao
     liste_f1Matcher = []
     liste_f1Matcher.append(f2_json)
     
-    # pour chacun des témoins dans les témoins à aligner avec le témoin de base
     f1_processed_tree = etree.Element("xml")
     f2_processed_tree = etree.Element("xml")
     for x in liste_f1Matcher:
-        # appliquer la fonction boucleMatch
         matched_items = boucleMatch(f1_json,x, paths, verbose=False, export_intermed=True)
         f1_processed_tree.append(matched_items[0])
         f2_processed_tree.append(matched_items[1])
@@ -203,8 +197,6 @@ def boucleMatch(texte1,texte2, paths, n_procs=2, verbose=False, export_intermed=
     liste1, idText1 = texte1["div"], texte1["idGnl"]
     liste2, idText2 = texte2["div"], texte2["idGnl"]
 
-
-    #création de deux listes vides
     v1_text_Element = etree.Element("text")
     v2_text_Element = etree.Element("text")
 
@@ -213,64 +205,50 @@ def boucleMatch(texte1,texte2, paths, n_procs=2, verbose=False, export_intermed=
         if verbose:
             print(i1)
         
-        #on récupère les id et correspondances des div du texte1
         c1 = i1["id"]
         corresp1 = i1["corresp"]
         position_info_dict = get_position_info_dict(i1)
         textToMatch1 = position_info_dict['token']
         elem1 = position_info_dict["element"]
         
-        #on itère sur la deuxième liste
         for i2 in liste2:
-            #s'il y a correspondance entre les div
             if i2["corresp"]==c1:
                 i2_position_info_dict = get_position_info_dict(i2)
                 textToMatch2 = i2_position_info_dict["token"]
                 elem2 = i2_position_info_dict["element"]
-
-                #on récupère les id et correspondances des div du texte2
                 c2 = i2["id"]
                 corresp2 = c1
     
-        #application de text_matcher sur les textes obtenus grâces à ci-dessus
         ta = matcher.Text(textToMatch1, c1)
         tb = matcher.Text(textToMatch2, c2)
         
-        #réalisation du match de text_matcher (on augmente valeur des ngram pour avoir un match plus sûr)
         ## note on verbosity : if verbose is set, `Extending forwards/backwards` will be printed as this happens on call to the method and thus prints output
-        ## the call_quietly function intercept can intercept this when these calls are triggered inside the lambda function, but not before
+        ## the call_quietly function  can intercept this when these calls are triggered inside the lambda function, but not before
         if verbose:
             obj = matcher.Matcher(ta, tb, ngramSize=4)
             m = call_quietly(obj.match)
         else: 
             m = call_quietly(lambda: matcher.Matcher(ta, tb, ngramSize=4).match())
 
-        # je récupère pour chacun de mes textes la liste des positions
         pos1, pos2 = m[1], m[2]
-
-        #pour chacun de mes textes : j'applique ma fonction recupid, avec un nom, la liste des positions, la liste des éléments, qui permet de récupérer la liste des id qui matchent
         l1, l2 = recupid(c1,pos1,elem1), recupid(c2,pos2,elem2)
 
-        # je transforme en chaîne de car les listes pour pouvoir les écrire
         m_ecr, l1_ecr, l2_ecr = str(m), str(l1), str(l2)
-        #on checke la longueur pour vérifier que tout va bien (doivent être égale, et égale au nombre de matchs trouvés par text_matcher)
         if verbose:
             print(len(l1["valeurs"]))
             print(len(l2["valeurs"]))
 
         if export_intermed:
             logfile_fullpath = f'{paths.log_dir}/log_match{c1}_{c2}.txt'
-            chunks = ["Voici les identifiants des mots qui matchent entre les deux textes :", l1_ecr, l2_ecr, "Ce qui suit est le log de text_matcher ", m_ecr]
+            chunks = ["IDs of the matching words in the two textx:", l1_ecr, l2_ecr, "Text_matcher log::", m_ecr]
 
             with open(logfile_fullpath, "w") as text_file:
                for chunk in chunks:
                    _ = text_file.write(chunk)
 
-        #j'applique ma fonction de production d'XML à partir de la liste de tokens, de la liste des identifiants qui matchent, et des autres id
         xml1, xml2 = prodXML(elem1,l1,idText1,c1,corresp1, paths.temp_dir), prodXML(elem2,l2,idText2,c2,corresp2, paths.temp_dir)
         v1_text_Element.append(xml1)
         v2_text_Element.append(xml2)
-        #fin de la boucle
 
     textIDs = [f'{idText1}', f'{idText2}']
     text_elements = [v1_text_Element, v2_text_Element]
@@ -282,13 +260,13 @@ def boucleMatch(texte1,texte2, paths, n_procs=2, verbose=False, export_intermed=
             print_tree.write(textfile, encoding='UTF-8', pretty_print=True)
 
 
-    # on parse les document qu'on vient de créer (plus simple pour la manipulation des données XML)
-    #on applique la fonction exportDef qui permet de mettre les paragraphes au bon niveau
     ## make payloads to pass to exporter function
     payloads = list(zip(text_elements, textIDs))
     worker_func = partial(exportDef_py_worker, output_dir=paths.output_dir, export_intermed=export_intermed)
+    
     # 3. Execute with ThreadPoolExecutor
-    return_items = [None] * len(payloads)  # Pre-allocate list to maintain order
+    # Pre-allocate list to maintain order
+    return_items = [None] * len(payloads)  
     
     with ThreadPoolExecutor(max_workers=n_procs) as executor:
         # Map each future to its original index to preserve order later
@@ -325,7 +303,7 @@ def thread_align(A1, B1, n_procs, paths, output_filename, devtest=False, futures
 
     if devtest == True:
         print("*************  Dev mode activated, skipping file writes   *************")
-        A1 = etree.parse(file1) ## TODO :: get these from step1 rather than load from here when dev ==  false
+        A1 = etree.parse(file1) 
         B1 = etree.parse(file2)
         print("Trees loaded")
         
@@ -333,7 +311,6 @@ def thread_align(A1, B1, n_procs, paths, output_filename, devtest=False, futures
     print(f'Token matching for {len(blocks)} divs with {n_procs} workers' )
     
     worker = partial(align_block_wrapper, A1=A1, B1=B1, paths=paths, devtest=devtest)
-    
     with ThreadPoolExecutor(max_workers=n_procs) as executor:
             with ThreadPoolExecutor(max_workers=n_procs) as executor:
                 futures = [executor.submit(worker, item) for item in enumerate(blocks, start=1)]
@@ -403,7 +380,6 @@ def align_block(div, propreId, A1, B1, paths, devtest=False):
             else:
                 print(f"No b blocks for iDiv == {iDiv} == {iDivEz}")
 
-        #création de l'objet collation
         json_collation = Collation()
         for witness in json_input["witnesses"]:
             json_collation.add_witness(witness)
@@ -536,11 +512,9 @@ def xml_div_to_json(name, raw_tree, temp_dir, level="div", verbose=False):
         'div': []
     }
 
-    #liste de div and a shorter name to make syntax tidier
     liste_par = witness['div']
     ns_decl = {'tei': 'http://www.tei-c.org/ns/1.0'}
     
-    #création d'une boucle pour pouvoir itérer sur chacun des éléments de niveau div, avec espace de nom TEI
     for par in raw_tree.xpath(f"descendant::tei:{level}[@xml:id and ancestor::tei:text]", namespaces=ns_decl):
         if verbose:
             print(par)
@@ -553,7 +527,6 @@ def xml_div_to_json(name, raw_tree, temp_dir, level="div", verbose=False):
         div = xml_to_tei_json(iden,corresp,par)
         liste_par.append(div)
     
-    #le résultat est le dictionnaire général contenant toutes les infos
     output_filename_full = os.path.join(temp_dir, f'{name}_dico_orig.json')
     with open(output_filename_full, "w") as text_file:
         _ = text_file.write(str(witness))
@@ -587,13 +560,13 @@ def xml_to_tei_json(iden,corresp,xmlInput):
             - 'tokens': A list of dictionaries, where each dictionary represents 
               a token with keys 'text', 'id', 'lemme' (cleaned), 'pdd' (pos), and 'msd'.
     """
-    #create dict and set first and second values
+
     div = {
       "id" : iden,
       "corresp": corresp
       }
 
-    #define XSLT fo get dicts from each div
+    #define XSLT to get dicts from each div
     xml_to_tei_json_xslt = etree.XML('''
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
     xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -676,25 +649,16 @@ def recupid(iden,text,json):
             - 'valeurs': A list of token IDs that correspond to the starting 
               positions found in the match results.
     """
-    #dictionnaire vide créé
     val = {}
-    #première clé : l'identifiant du texte
     val["id"] = iden
-    #création d'une liste vide qui doit récupérer les valeurs des id corr à chaque position
     liste_des_val = []
-    #boucle sur chacun des éléments (len(text) = nombre de matchs)
     for i in range (0, len(text)) :  
-        # je récupère la position pour avoir le début du mot : correspond au premier caractère du premier mot du match 
         lieuText = text[i][0]       
-        #je crée une boucle sur les éléments dans la liste des éléments modifiés
         for elem in json:
-            #si la valeur dans la liste des positions obtenues dans text_matcher correspond à la valeur debut_mot d'un de mes éléments
             if lieuText ==  elem["debut_mot"]:
-                #j'ajoute l'id de cet élément à ma liste de valeurs des id
                 liste_des_val.append(elem["id"])
-    # je crée une nouvelle clé de valeurs à mon dictionnaire, qui donne les id de chacun des mots
+    
     val["valeurs"] = liste_des_val
-    # je récupère mon dico
     return val
 
 def exportDef_py(text_element):
@@ -719,7 +683,6 @@ def exportDef_py(text_element):
     new_root = etree.Element("text")
 
     current_paragraph = None
-    # Parcourir les éléments du document XML d'origine
     for element in input_text_element.xpath(f"descendant::node()[self::w or self::p or self::div or self::lg or self::l or self::ab]"):
         #if element.tag == "div" or element.tag == "lg": 
         if element.xpath(f"descendant::node()[self::p or self::div or self::lg or self::l or self::ab] and @xml:id"):
@@ -728,7 +691,7 @@ def exportDef_py(text_element):
             new_div = etree.SubElement(new_root, nomElem)
             new_div.attrib.update(element.attrib)
         elif element.tag == "w":
-            # Si c'est un mot, l'ajouter au paragraphe en cours ou créer un nouveau paragraphe
+            # add word to para or start new, if there is actually a word
             if current_paragraph is None:
                 current_paragraph = etree.SubElement(new_div, "p", n="0")
             new_word = etree.SubElement(current_paragraph, "w")
@@ -736,9 +699,7 @@ def exportDef_py(text_element):
             new_word.text = element.text
         #elif element.tag == "p":
         elif element.xpath(f"ancestor::node()[self::div or self::lg or self::ab] and @n"):
-            # Si c'est une unité plus petite, mettre à jour l'unité en cours
             nomElemNivBas = element.tag
-            #current_paragraph = etree.SubElement(new_div, "p", n=element.attrib.get("n"))
             current_paragraph = etree.SubElement(new_div, nomElemNivBas, n=element.attrib.get("n"))
 
     return new_root
@@ -790,33 +751,23 @@ def prodXML(val,listev,cle,clediv,corresp, paths, export_intermed=False):
             restructured tokens and paragraphs.
     """
 
-    #variable qui récupère les valeurs des identifiants qui marchent
     liste_des_valeurs = listev["valeurs"]
-    #création d'un premier élément racine, avec ses attributs, qui corr à son id et à sa correspondance
     div = etree.Element("div")
     div.set("{http://www.w3.org/XML/1998/namespace}id", clediv)
     div.set("corresp", corresp)
-    # boucle qui va itérer sur chacun des élément du dictionnaires de token
     for i in val:
-        #on récupère les valeurs de ce dico
         l = i["lemme"]
         iden = i["id"]
         text = i["text"]
         pos = i["n"]
         pdd = i["pdd"]
         msd = i["msd"]
-        #si l'identifiant se trouve dans la liste des identifiants qui marchent
         if iden in liste_des_valeurs:
-            #je crée un identifiant de paragraphe +1 (car besoin ensuite de créer un avec valeur 0)
             piden = liste_des_valeurs.index(iden)+1
-            #le type int fonctionne pas, donc str
             piden = str(piden)
-            #je crée l'élément p
             p = etree.SubElement(div, "p")
-            #je lui crée un attribut avec pour valeur sa position
             p.set("n", piden)
 
-        # création de l'élément w avec ses attributs à partir de la liste de tokens  
         e = etree.SubElement(div, "w")
         e.set("{http://www.w3.org/XML/1998/namespace}id", iden)
         if l != '':
@@ -833,9 +784,7 @@ def prodXML(val,listev,cle,clediv,corresp, paths, export_intermed=False):
             pass
         e.text = text
     if export_intermed:
-        #création de l'XML intermédiaire
         div_as_string = etree.tostring(div, encoding="unicode")
-        #on l'enregistre dans un fichier; cette étape nous permet d'éviter le problème d'encodage de l'xml (bytes, strings...)
         clevid_outputpath = f'{paths.temp_dir}/export{clediv}.xml'
         with open(clevid_outputpath, 'w', encoding='UTF-8') as fichier:
             _ = fichier.write(div_as_string)
